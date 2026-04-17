@@ -35,3 +35,15 @@ gradle/wrapper/gradle-wrapper.jar
 
 # Windows
 Thumbs.db
+desktop.ini
+
+# Android profiling / captures
+*.hprof
+captures/
+
+# Sensitive / env files
+*.env
+google-services.json
+
+# Generated files
+app/src/main/java/com/exptracker/BuildConfig.java

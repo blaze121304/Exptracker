@@ -43,7 +43,7 @@ class LotteCardParser : CardParser {
         val (month, day) = mmdd.split("/")
         val date = "%d-%s-%s".format(year, month, day)        // "2026-04-17"
 
-        return ParsedExpense(vendor = vendor, amount = amount, date = date, time = time)
+        return ParsedExpense(vendor = vendor, amount = amount, date = date, time = time, cardName = "롯데카드")
     }
 
     companion object {

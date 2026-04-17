@@ -5,8 +5,9 @@ import com.exptracker.data.SimpleExpense
 data class ParsedExpense(
     val vendor: String,
     val amount: Int,
-    val date: String,   // "yyyy-MM-dd"
-    val time: String    // "HH:mm"
+    val date: String,       // "yyyy-MM-dd"
+    val time: String,       // "HH:mm"
+    val cardName: String    // 카드사 이름
 )
 
 interface CardParser {
