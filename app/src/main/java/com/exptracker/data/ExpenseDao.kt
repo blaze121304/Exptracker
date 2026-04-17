@@ -18,4 +18,12 @@ interface ExpenseDao {
     // Step 3: Widget — most recent 3 entries for today
     @Query("SELECT * FROM expenses WHERE date = :date ORDER BY id DESC LIMIT 3")
     suspend fun getRecentByDate(date: String): List<SimpleExpense>
+
+    // Calendar — all expenses for a given month (yearMonth = "yyyy-MM")
+    @Query("SELECT * FROM expenses WHERE date LIKE :yearMonth || '-%' ORDER BY date, id")
+    suspend fun getByMonth(yearMonth: String): List<SimpleExpense>
+
+    // Calendar — all expenses for a specific date
+    @Query("SELECT * FROM expenses WHERE date = :date ORDER BY id DESC")
+    suspend fun getByDate(date: String): List<SimpleExpense>
 }
