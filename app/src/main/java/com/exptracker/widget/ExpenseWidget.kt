@@ -12,6 +12,7 @@ import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
@@ -20,6 +21,7 @@ import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
@@ -37,6 +39,41 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
+// ── 색상 팔레트 (Figma: Clean Calendar) ────────────────────────────────────
+private val Purple       = Color(0xFF3F15EA)
+private val PurpleLight  = Color(0xFFEDE9FC)
+private val BgCalendar   = Color(0xFFF4F4F4)
+private val TextPrimary  = Color(0xFF000000)
+private val TextDim      = Color(0xFF999999)   // 요일 헤더: rgba(0,0,0,0.4) ≈ #666
+
+// ── 지출 금액 티어 (라이트 테마) ────────────────────────────────────────────
+private data class Tier(val bg: Color, val selectedBg: Color, val fg: Color)
+private fun tier(amount: Int): Tier? = when {
+    amount == 0       -> Tier(Color(0xFFE8F5E9), Color(0xFF2E7D32), Color(0xFF2E7D32))
+    amount <= 10_000  -> Tier(Color(0xFFE3F2FD), Color(0xFF1565C0), Color(0xFF1565C0))
+    amount <= 30_000  -> Tier(Color(0xFFFFF8E1), Color(0xFFF9A825), Color(0xFFF57F17))
+    amount <= 50_000  -> Tier(Color(0xFFFFF3E0), Color(0xFFE65100), Color(0xFFE65100))
+    amount <= 100_000 -> Tier(Color(0xFFFFEBEE), Color(0xFFC62828), Color(0xFFC62828))
+    else              -> Tier(Color(0xFFFCE4EC), Color(0xFF880E4F), Color(0xFF880E4F))
+}
+
+// ── 달력 그리드 메타 ───────────────────────────────────────────────────────
+private data class GridMeta(
+    val ym: YearMonth,
+    val firstDayOffset: Int, // 일요일 시작: 일=0…토=6
+    val daysInMonth: Int,
+    val totalRows: Int,
+    val ymFmtStr: String    // "yyyy-MM" formatted
+)
+private fun gridMeta(today: LocalDate): GridMeta {
+    val ym = YearMonth.of(today.year, today.month)
+    val offset = ym.atDay(1).dayOfWeek.value % 7
+    val days = ym.lengthOfMonth()
+    val rows = (offset + days + 6) / 7
+    val fmt = DateTimeFormatter.ofPattern("yyyy-MM")
+    return GridMeta(ym, offset, days, rows, ym.format(fmt))
+}
+
 class ExpenseWidget : GlanceAppWidget() {
 
     override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
@@ -47,47 +84,44 @@ class ExpenseWidget : GlanceAppWidget() {
         val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         val todayStr = now.format(fmt)
 
-        // ── 결제일 기준 청구 기간 계산 ──────────────────────────────────────
+        val prefsName = if (com.exptracker.BuildConfig.DEBUG) "exptracker_prefs_test" else "exptracker_prefs"
         val billingDay = context
-            .getSharedPreferences("exptracker_prefs", Context.MODE_PRIVATE)
+            .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
             .getInt("billing_day", 10)
         val cycleStart = if (now.dayOfMonth >= billingDay)
             now.withDayOfMonth(billingDay)
         else
             now.minusMonths(1).withDayOfMonth(billingDay)
         val cycleEnd = cycleStart.plusMonths(1).minusDays(1)
+        val cycleTotal = dao.getTotalInRange(cycleStart.format(fmt), cycleEnd.format(fmt))
 
-        val cycleStartStr = cycleStart.format(fmt)
-        val cycleEndStr   = cycleEnd.format(fmt)
-        val cycleTotal = dao.getTotalInRange(cycleStartStr, cycleEndStr)
-
-        // ── 캘린더 표시용 이번달 데이터 ─────────────────────────────────────
         val yearMonthStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM"))
         val monthExpenses = dao.getByMonth(yearMonthStr)
-        val dailyExpenses = monthExpenses.groupBy { it.date }
-        val dailyTotals   = dailyExpenses.mapValues { e -> e.value.sumOf { it.amount } }
+        val dailyMap = monthExpenses.groupBy { it.date }
+        val dailyTotals = dailyMap.mapValues { e -> e.value.sumOf { it.amount } }
 
         provideContent {
             val prefs = currentState<Preferences>()
             val selectedDate = prefs[SelectDateCallback.SELECTED_DATE_KEY] ?: todayStr
-            val selectedExpenses = dailyExpenses[selectedDate] ?: emptyList()
+            val selectedExpenses = dailyMap[selectedDate] ?: emptyList()
             val selectedTotal = selectedExpenses.sumOf { it.amount }
 
             WidgetContent(
-                today = now,
-                todayStr = todayStr,
-                selectedDate = selectedDate,
-                dailyTotals = dailyTotals,
-                cycleTotal = cycleTotal,
+                today          = now,
+                todayStr       = todayStr,
+                selectedDate   = selectedDate,
+                dailyTotals    = dailyTotals,
+                cycleTotal     = cycleTotal,
                 selectedExpenses = selectedExpenses,
-                selectedTotal = selectedTotal,
-                billingDay = billingDay
+                selectedTotal  = selectedTotal,
+                billingDay     = billingDay
             )
         }
     }
 }
 
-// ─── 루트 레이아웃 ── 상단 50% 캘린더 / 하단 50% 내역 ──────────────────────────
+// ─── 루트 레이아웃 ─────────────────────────────────────────────────────────────
+// 6등분(defaultWeight×6): 헤더1 + 달력3(요일+행0~1 / 행2~3 / 행4~5) + 결제내역2(날짜헤더 / 목록)
 
 @Composable
 private fun WidgetContent(
@@ -100,265 +134,272 @@ private fun WidgetContent(
     selectedTotal: Int,
     billingDay: Int
 ) {
+    val meta = gridMeta(today)
+
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(Color(0xFFFAFAFA)))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .background(ColorProvider(BgCalendar))
     ) {
-        // ── 월 헤더 (고정) ────────────────────────────────────────────────────
-        Row(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 4.dp)) {
+
+        // ── 1/6: 헤더 (Figma "September, 2022" 구역 — 년월 + 결제정보) ──────
+        Row(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = today.format(DateTimeFormatter.ofPattern("yyyy년 M월")) + "(결제일 : ${billingDay}일)",
+                text = today.format(DateTimeFormatter.ofPattern("yyyy년 M월")),
                 modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(
-                    color = ColorProvider(Color(0xFF111111)),
-                    fontSize = 16.sp,
+                    color = ColorProvider(TextPrimary),
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
             )
-            Text(
-                text = "총 %,d원 결제".format(cycleTotal),
-                style = TextStyle(
-                    color = ColorProvider(Color(0xFF1565C0)),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            )
-        }
-
-        // ── 캘린더 영역 (상단 절반) ───────────────────────────────────────────
-        Column(
-            modifier = GlanceModifier.fillMaxWidth().defaultWeight()
-        ) {
-            DayOfWeekRow()
-            CalendarGrid(
-                today = today,
-                todayStr = todayStr,
-                selectedDate = selectedDate,
-                dailyTotals = dailyTotals,
-                modifier = GlanceModifier.fillMaxSize()
-            )
-        }
-
-        // ── 지출 내역 영역 (하단 절반) ────────────────────────────────────────
-        Column(
-            modifier = GlanceModifier.fillMaxWidth().defaultWeight()
-        ) {
-            // 선택된 날짜 헤더 바
-            Row(
-                modifier = GlanceModifier
-                    .fillMaxWidth()
-                    .background(ColorProvider(Color(0xFF1565C0)))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = selectedDate.substring(5).replace("-", "/"),
-                    modifier = GlanceModifier.defaultWeight(),
-                    style = TextStyle(
-                        color = ColorProvider(Color.White),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    text = "결제일 ${billingDay}일",
+                    style = TextStyle(color = ColorProvider(Purple), fontSize = 10.sp)
                 )
                 Text(
-                    text = "%,d원".format(selectedTotal),
+                    text = "%,d원".format(cycleTotal),
                     style = TextStyle(
-                        color = ColorProvider(Color.White),
-                        fontSize = 13.sp,
+                        color = ColorProvider(Purple),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 )
             }
+        }
 
-            // 스크롤 가능한 지출 목록
+        // ── 2/6: 달력 — 요일헤더 + 행 0~1 ───────────────────────────────────
+        Column(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .padding(horizontal = 8.dp)
+        ) {
+            Row(modifier = GlanceModifier.fillMaxWidth()) {
+                listOf("일", "월", "화", "수", "목", "금", "토").forEach { label ->
+                    Text(
+                        text = label,
+                        modifier = GlanceModifier.defaultWeight(),
+                        style = TextStyle(
+                            color = ColorProvider(TextDim),
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    )
+                }
+            }
+            CalendarRow(0, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+            CalendarRow(1, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+        }
+
+        // ── 3/6: 달력 — 행 2~3 ───────────────────────────────────────────────
+        Column(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .padding(horizontal = 8.dp)
+        ) {
+            CalendarRow(2, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+            CalendarRow(3, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+        }
+
+        // ── 4/6: 달력 — 행 4~5 ───────────────────────────────────────────────
+        Column(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .padding(horizontal = 8.dp)
+        ) {
+            CalendarRow(4, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+            CalendarRow(5, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
+        }
+
+        // ── 5/6: 결제내역 — 날짜 헤더 (Figma "20 September 2022" 스타일) ──────
+        Row(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .background(ColorProvider(BgCalendar))
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = run {
+                    val parts = selectedDate.split("-")
+                    "${parts[1].trimStart('0')}월 ${parts[2].trimStart('0')}일"
+                },
+                modifier = GlanceModifier.defaultWeight(),
+                style = TextStyle(
+                    color = ColorProvider(TextPrimary),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            )
+            Text(
+                text = "%,d원".format(selectedTotal),
+                style = TextStyle(
+                    color = ColorProvider(Purple),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+        }
+
+        // ── 6/6: 결제내역 — 목록 (Figma 이벤트 카드 스타일) ─────────────────
+        Column(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .defaultWeight()
+                .background(ColorProvider(BgCalendar))
+        ) {
             if (selectedExpenses.isEmpty()) {
                 Text(
                     text = "지출 내역 없음",
-                    modifier = GlanceModifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                    style = TextStyle(
-                        color = ColorProvider(Color(0xFF999999)),
-                        fontSize = 13.sp
-                    )
+                    modifier = GlanceModifier.padding(horizontal = 16.dp),
+                    style = TextStyle(color = ColorProvider(TextDim), fontSize = 12.sp)
                 )
             } else {
-                LazyColumn(
-                    modifier = GlanceModifier.fillMaxSize()
-                ) {
-                    items(selectedExpenses) { expense ->
-                        ExpenseRow(expense)
-                    }
+                LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+                    items(selectedExpenses) { expense -> ExpenseRow(expense) }
                 }
             }
         }
     }
 }
 
-// ─── 요일 헤더 ────────────────────────────────────────────────────────────────
+// ─── 달력 한 행 ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun DayOfWeekRow() {
-    val days = listOf(
-        "일" to Color(0xFFD32F2F), "월" to Color(0xFF444444),
-        "화" to Color(0xFF444444), "수" to Color(0xFF444444),
-        "목" to Color(0xFF444444), "금" to Color(0xFF444444),
-        "토" to Color(0xFF1565C0)
-    )
-    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        days.forEach { (label, color) ->
-            Text(
-                text = label,
-                modifier = GlanceModifier.defaultWeight(),
-                style = TextStyle(
-                    color = ColorProvider(color),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-            )
-        }
-    }
-}
-
-// ─── 달력 그리드 ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun CalendarGrid(
-    today: LocalDate,
+private fun CalendarRow(
+    row: Int,
+    meta: GridMeta,
     todayStr: String,
     selectedDate: String,
     dailyTotals: Map<String, Int>,
     modifier: GlanceModifier = GlanceModifier
 ) {
-    val yearMonth = YearMonth.of(today.year, today.month)
-    val firstDayOfWeek = yearMonth.atDay(1).dayOfWeek.value % 7
-    val daysInMonth = yearMonth.lengthOfMonth()
-    val rows = (firstDayOfWeek + daysInMonth + 6) / 7
-    val ymFmt = DateTimeFormatter.ofPattern("yyyy-MM")
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        repeat(7) { col ->
+            val day = row * 7 + col - meta.firstDayOffset + 1
+            if (day < 1 || day > meta.daysInMonth) {
+                Column(modifier = GlanceModifier.defaultWeight()) {}
+                return@repeat
+            }
 
-    // fillMaxSize + 각 Row가 defaultWeight → 남은 높이를 주(週) 수로 균등 분배
-    Column(modifier = modifier) {
-        repeat(rows) { row ->
-            Row(
-                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(7) { col ->
-                    val day = row * 7 + col - firstDayOfWeek + 1
-                    if (day < 1 || day > daysInMonth) {
-                        Column(modifier = GlanceModifier.defaultWeight()) {}
-                        return@repeat
-                    }
+            val dateStr = "%s-%02d".format(meta.ymFmtStr, day)
+            val dayTotal = dailyTotals[dateStr] ?: 0
+            val isToday    = dateStr == todayStr
+            val isSelected = dateStr == selectedDate
+            val isPastOrToday = dateStr <= todayStr
+            val t = if (isPastOrToday) tier(dayTotal) else null
 
-                    val dateStr = "%s-%02d".format(yearMonth.format(ymFmt), day)
-                    val dayTotal = dailyTotals[dateStr] ?: 0
-                    val isToday = dateStr == todayStr
-                    val isSelected = dateStr == selectedDate
-                    val isPastOrToday = dateStr <= todayStr
+            val cellBg: Color = when {
+                isSelected   -> Purple
+                isToday      -> PurpleLight
+                t != null    -> t.bg
+                else         -> BgCalendar
+            }
+            val textColor: Color = when {
+                isSelected   -> Color.White
+                isToday      -> Purple
+                t != null    -> t.fg
+                else         -> TextPrimary
+            }
 
-                    val textColor = when (col) {
-                        0 -> Color(0xFFD32F2F)
-                        6 -> Color(0xFF1565C0)
-                        else -> Color(0xFF333333)
-                    }
-
-                    // 연한 배경(bg) / 진한 배경(selectedBg) / 텍스트(fg) 쌍
-                    data class DayColors(val bg: Color, val selectedBg: Color, val fg: Color)
-                    val dayColors: DayColors? = if (isPastOrToday) when {
-                        dayTotal == 0        -> DayColors(Color(0xFFD7F5DC), Color(0xFF2E7D32), Color(0xFF2E7D32))
-                        dayTotal <= 10_000   -> DayColors(Color(0xFFD0E8FF), Color(0xFF1565C0), Color(0xFF1565C0))
-                        dayTotal <= 30_000   -> DayColors(Color(0xFFFFF8D6), Color(0xFFF57F17), Color(0xFFF57F17))
-                        dayTotal <= 50_000   -> DayColors(Color(0xFFFFE0B2), Color(0xFFE65100), Color(0xFFE65100))
-                        dayTotal <= 100_000  -> DayColors(Color(0xFFFFE0E0), Color(0xFFC62828), Color(0xFFC62828))
-                        else                 -> DayColors(Color(0xFFEF9A9A), Color(0xFF7F0000), Color(0xFF7F0000))
-                    } else null
-
-                    // 선택 시 → 진한 배경 / 미선택 → 연한 배경 / 데이터 없음 → 배경 없음
-                    val activeBg = when {
-                        isSelected && dayColors != null -> dayColors.selectedBg
-                        dayColors != null               -> dayColors.bg
-                        else                            -> null
-                    }
-
-                    Column(
-                        modifier = GlanceModifier
-                            .defaultWeight()
-                            .then(
-                                if (activeBg != null) GlanceModifier.background(ColorProvider(activeBg))
-                                else GlanceModifier
-                            )
-                            .padding(vertical = 2.dp)
-                            .clickable(
-                                actionRunCallback<SelectDateCallback>(
-                                    actionParametersOf(SelectDateCallback.DATE_PARAM to dateStr)
-                                )
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = day.toString(),
-                            style = TextStyle(
-                                color = ColorProvider(
-                                    when {
-                                        isSelected && dayColors != null -> Color(0xFFFFFFFF) // 진한 배경 위 흰 글씨
-                                        dayColors != null -> dayColors.fg
-                                        else -> textColor
-                                    }
-                                ),
-                                fontSize = 18.sp,
-                                fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = TextAlign.Center
-                            )
+            Column(
+                modifier = GlanceModifier
+                    .defaultWeight()
+                    .background(ColorProvider(cellBg))
+                    .cornerRadius(14.dp)
+                    .padding(vertical = 2.dp)
+                    .clickable(
+                        actionRunCallback<SelectDateCallback>(
+                            actionParametersOf(SelectDateCallback.DATE_PARAM to dateStr)
                         )
-                        // 과거/오늘 날짜는 항상 두 번째 줄 렌더링 → 셀 높이 통일
-                        if (dayColors != null) {
-                            val zeroMsg = zeroDayMessage(dateStr)
-                            Text(
-                                text = if (dayTotal > 0) amountShort(dayTotal) else zeroMsg,
-                                style = TextStyle(
-                                    color = ColorProvider(
-                                        when {
-                                            isSelected -> Color(0xFFEEEEEE)
-                                            dayTotal == 0 -> Color(0xFFE53935) // 빨간색
-                                            else -> dayColors.fg
-                                        }
-                                    ),
-                                    fontSize = 10.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            )
-                        }
-                    }
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = day.toString(),
+                    style = TextStyle(
+                        color = ColorProvider(textColor),
+                        fontSize = 14.sp,
+                        fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center
+                    )
+                )
+                // 지출이 있는 날: 금액 축약 표시 (작은 글씨)
+                if (t != null && dayTotal > 0) {
+                    Text(
+                        text = amountShort(dayTotal),
+                        style = TextStyle(
+                            color = ColorProvider(if (isSelected) Color.White else t.fg),
+                            fontSize = 9.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    )
+                }
+                // 지출 0원 날: 절약 메시지 (작은 글씨)
+                if (t != null && dayTotal == 0) {
+                    Text(
+                        text = zeroDayMessage(dateStr),
+                        style = TextStyle(
+                            color = ColorProvider(if (isSelected) Color.White else t.fg),
+                            fontSize = 9.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    )
                 }
             }
         }
     }
 }
 
-// ─── 지출 행 ─────────────────────────────────────────────────────────────────
+// ─── 지출 카드 (Figma 이벤트 카드: 20dp 라운드, 금액 티어별 색상) ───────────
 
 @Composable
 private fun ExpenseRow(expense: SimpleExpense) {
+    // 피그마 팔레트: blue(≤1만) / yellow(≤3만) / red(≤5만) / rose(≤10만) / pink(초과)
+    val cardBg: Color
+    val cardFg: Color
+    when {
+        expense.amount <= 10_000  -> { cardBg = Color(0xFFBDD0FC); cardFg = Purple }
+        expense.amount <= 30_000  -> { cardBg = Color(0xFFFFF0BD); cardFg = Color(0xFFB07800) }
+        expense.amount <= 50_000  -> { cardBg = Color(0xFFFCC8BD); cardFg = Color(0xFFEA1515) }
+        expense.amount <= 100_000 -> { cardBg = Color(0xFFFFB8D0); cardFg = Color(0xFFCF1669) }
+        else                      -> { cardBg = Color(0xFFFCBDF2); cardFg = Color(0xFFEA15BB) }
+    }
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .background(ColorProvider(cardBg))
+            .cornerRadius(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = expense.time,
-            style = TextStyle(color = ColorProvider(Color(0xFF888888)), fontSize = 11.sp)
+            modifier = GlanceModifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
+            style = TextStyle(color = ColorProvider(cardFg), fontSize = 10.sp)
         )
-        androidx.glance.layout.Spacer(modifier = GlanceModifier.width(6.dp))
+        Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
             text = expense.vendor,
             modifier = GlanceModifier.defaultWeight(),
-            style = TextStyle(color = ColorProvider(Color(0xFF222222)), fontSize = 12.sp)
+            style = TextStyle(color = ColorProvider(cardFg), fontSize = 12.sp)
         )
         Text(
             text = "%,d원".format(expense.amount),
+            modifier = GlanceModifier.padding(end = 14.dp),
             style = TextStyle(
-                color = ColorProvider(Color(0xFF111111)),
+                color = ColorProvider(cardFg),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -366,7 +407,7 @@ private fun ExpenseRow(expense: SimpleExpense) {
     }
 }
 
-// ─── 금액 축약 ────────────────────────────────────────────────────────────────
+// ─── 유틸 ─────────────────────────────────────────────────────────────────────
 
 private fun amountShort(amount: Int): String = when {
     amount >= 100_000 -> "%d만".format(amount / 10_000)
@@ -375,7 +416,7 @@ private fun amountShort(amount: Int): String = when {
 }
 
 private fun zeroDayMessage(dateStr: String): String {
-    val messages = listOf("Good!", "짠돌이!", "부자되겠어!", "빌딩사자!", "절약왕!", "통장부자!", "참을인!", "대단해!")
+    val msgs = listOf("Good!", "짠돌이!", "부자!", "빌딩!", "절약왕!", "통장+!", "인내!", "대박!")
     val seed = dateStr.replace("-", "").toLongOrNull() ?: 0L
-    return messages[(seed % messages.size).toInt()]
+    return msgs[(seed % msgs.size).toInt()]
 }

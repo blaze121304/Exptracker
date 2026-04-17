@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__figam__whoami",
+      "mcp__figam__get_design_context"
+    ]
+  }
+}

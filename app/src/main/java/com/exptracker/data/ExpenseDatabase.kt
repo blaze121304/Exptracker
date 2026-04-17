@@ -5,10 +5,12 @@ import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exptracker.BuildConfig
 import java.io.File
 
-@Database(entities = [SimpleExpense::class], version = 2, exportSchema = false)
+@Database(entities = [SimpleExpense::class], version = 4, exportSchema = false)
 abstract class ExpenseDatabase : RoomDatabase() {
 
     abstract fun expenseDao(): ExpenseDao
@@ -20,6 +22,19 @@ abstract class ExpenseDatabase : RoomDatabase() {
         // Debug 빌드 → TEST DB / Release 빌드 → PRD DB
         private val DB_NAME = if (BuildConfig.DEBUG) "expense_database_TEST.db"
                               else                   "expense_database_PRD.db"
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE expenses ADD COLUMN cardName TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 기존 레코드 전부 롯데카드로 설정 (현재 지원 카드가 롯데카드 하나뿐)
+                db.execSQL("UPDATE expenses SET cardName = '롯데카드' WHERE cardName = ''")
+            }
+        }
 
         fun getDatabase(context: Context): ExpenseDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -34,7 +49,7 @@ abstract class ExpenseDatabase : RoomDatabase() {
                 context.applicationContext,
                 ExpenseDatabase::class.java,
                 dbFile.absolutePath
-            ).fallbackToDestructiveMigration().build()
+            ).addMigrations(MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build()
         }
 
         private fun resolveDbFile(context: Context): File {

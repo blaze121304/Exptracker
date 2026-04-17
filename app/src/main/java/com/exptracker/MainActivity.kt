@@ -55,7 +55,8 @@ fun MainScreen() {
     val scope = rememberCoroutineScope()
     val fmt = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd") }
     var isRunning by remember { mutableStateOf(false) }
-    val prefs = remember { context.getSharedPreferences("exptracker_prefs", Context.MODE_PRIVATE) }
+    val prefsName = if (com.exptracker.BuildConfig.DEBUG) "exptracker_prefs_test" else "exptracker_prefs"
+    val prefs = remember { context.getSharedPreferences(prefsName, Context.MODE_PRIVATE) }
     var billingDay by remember { mutableStateOf(prefs.getInt("billing_day", 10)) }
     var saved by remember { mutableStateOf(true) }
     var rankings by remember { mutableStateOf<List<VendorTotal>?>(null) }
@@ -320,8 +321,10 @@ fun MainScreen() {
     }
 }
 
+private fun prefsName() = if (com.exptracker.BuildConfig.DEBUG) "exptracker_prefs_test" else "exptracker_prefs"
+
 private suspend fun insertSeedDataOnce(context: Context) {
-    val prefs = context.getSharedPreferences("exptracker_prefs", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
     if (prefs.getBoolean("seed_v2_inserted", false)) return
 
     withContext(Dispatchers.IO) {
@@ -352,10 +355,11 @@ private suspend fun insertSeedDataOnce(context: Context) {
 
         seed.forEach { (date, vendor, amountTime) ->
             dao.insert(SimpleExpense(
-                amount = amountTime.first,
-                vendor = vendor,
-                date   = date.format(fmt),
-                time   = amountTime.second
+                amount   = amountTime.first,
+                vendor   = vendor,
+                date     = date.format(fmt),
+                time     = amountTime.second,
+                cardName = "롯데카드"
             ))
         }
     }
@@ -364,7 +368,7 @@ private suspend fun insertSeedDataOnce(context: Context) {
 
 // D-2에 20건 삽입 — 스크롤 테스트용
 private suspend fun insertScrollTestDataOnce(context: Context) {
-    val prefs = context.getSharedPreferences("exptracker_prefs", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
     if (prefs.getBoolean("seed_scroll_inserted", false)) return
 
     withContext(Dispatchers.IO) {
@@ -396,10 +400,11 @@ private suspend fun insertScrollTestDataOnce(context: Context) {
 
         records.forEach { (time, vendorAmount) ->
             dao.insert(SimpleExpense(
-                amount = vendorAmount.second,
-                vendor = vendorAmount.first,
-                date   = date,
-                time   = time
+                amount   = vendorAmount.second,
+                vendor   = vendorAmount.first,
+                date     = date,
+                time     = time,
+                cardName = "롯데카드"
             ))
         }
     }
