@@ -3,21 +3,28 @@
 
     <application
         android:allowBackup="true"
+        android:hasFragileUserData="true"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
-        <!-- Step 1: Single Activity — shows only permission status -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Step 1: NotificationListenerService skeleton -->
+        <!-- 위젯 날짜 탭 시 뜨는 팝업 -->
+        <activity
+            android:name=".DetailActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.ExpTracker.Popup" />
+
         <service
             android:name=".service.ExpenseNotificationService"
             android:label="지출 알림 수집"
@@ -28,7 +35,6 @@
             </intent-filter>
         </service>
 
-        <!-- Step 3: Glance Widget receiver -->
         <receiver
             android:name=".widget.ExpenseWidgetReceiver"
             android:exported="true">

@@ -9,16 +9,26 @@ import com.exptracker.data.SimpleExpense
 import com.exptracker.widget.ExpenseWidgetReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class ExpenseNotificationService : NotificationListenerService() {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    // SupervisorJob: 개별 코루틴 실패가 다른 코루틴에 영향 안 줌
+    // onListenerDisconnected에서 cancel → 서비스 종료 시 누수 없음
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + job)
 
     // 카드사 파서 목록 — 새 카드 추가 시 여기에만 추가
     private val parsers: List<CardParser> = listOf(
         LotteCardParser()
     )
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        job.cancel()  // 서비스 연결 해제 시 진행 중인 코루틴 모두 정리
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val extras = sbn.notification.extras

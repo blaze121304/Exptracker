@@ -26,4 +26,8 @@ interface ExpenseDao {
     // Calendar — all expenses for a specific date
     @Query("SELECT * FROM expenses WHERE date = :date ORDER BY id DESC")
     suspend fun getByDate(date: String): List<SimpleExpense>
+
+    // 청구 기간 합계 (결제일 기준: startDate ~ endDate)
+    @Query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= :startDate AND date <= :endDate")
+    suspend fun getTotalInRange(startDate: String, endDate: String): Int
 }
