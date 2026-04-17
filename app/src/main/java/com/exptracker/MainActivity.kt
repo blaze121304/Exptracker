@@ -352,10 +352,11 @@ private suspend fun insertSeedDataOnce(context: Context) {
 
         seed.forEach { (date, vendor, amountTime) ->
             dao.insert(SimpleExpense(
-                amount = amountTime.first,
-                vendor = vendor,
-                date   = date.format(fmt),
-                time   = amountTime.second
+                amount   = amountTime.first,
+                vendor   = vendor,
+                date     = date.format(fmt),
+                time     = amountTime.second,
+                cardName = "롯데카드"
             ))
         }
     }
@@ -396,10 +397,11 @@ private suspend fun insertScrollTestDataOnce(context: Context) {
 
         records.forEach { (time, vendorAmount) ->
             dao.insert(SimpleExpense(
-                amount = vendorAmount.second,
-                vendor = vendorAmount.first,
-                date   = date,
-                time   = time
+                amount   = vendorAmount.second,
+                vendor   = vendorAmount.first,
+                date     = date,
+                time     = time,
+                cardName = "롯데카드"
             ))
         }
     }

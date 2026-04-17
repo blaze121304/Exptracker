@@ -53,10 +53,11 @@ class ExpenseNotificationService : NotificationListenerService() {
             val dao = ExpenseDatabase.getDatabase(applicationContext).expenseDao()
             dao.insert(
                 SimpleExpense(
-                    amount = parsed.amount,
-                    vendor = parsed.vendor,
-                    date   = parsed.date,
-                    time   = parsed.time
+                    amount   = parsed.amount,
+                    vendor   = parsed.vendor,
+                    date     = parsed.date,
+                    time     = parsed.time,
+                    cardName = parsed.cardName
                 )
             )
             Log.d(TAG, "Saved to DB ✓")
