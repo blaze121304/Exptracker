@@ -48,9 +48,9 @@ class ExpenseWidget : GlanceAppWidget() {
         val todayStr = now.format(fmt)
 
         // ── 결제일 기준 청구 기간 계산 ──────────────────────────────────────
-        // 오늘 >= 10일 → 이번달 10일 ~ 다음달 9일
-        // 오늘 < 10일  → 지난달 10일 ~ 이번달 9일
-        val billingDay = 10
+        val billingDay = context
+            .getSharedPreferences("exptracker_prefs", Context.MODE_PRIVATE)
+            .getInt("billing_day", 10)
         val cycleStart = if (now.dayOfMonth >= billingDay)
             now.withDayOfMonth(billingDay)
         else
@@ -80,7 +80,8 @@ class ExpenseWidget : GlanceAppWidget() {
                 dailyTotals = dailyTotals,
                 cycleTotal = cycleTotal,
                 selectedExpenses = selectedExpenses,
-                selectedTotal = selectedTotal
+                selectedTotal = selectedTotal,
+                billingDay = billingDay
             )
         }
     }
@@ -96,7 +97,8 @@ private fun WidgetContent(
     dailyTotals: Map<String, Int>,
     cycleTotal: Int,
     selectedExpenses: List<SimpleExpense>,
-    selectedTotal: Int
+    selectedTotal: Int,
+    billingDay: Int
 ) {
     Column(
         modifier = GlanceModifier
@@ -107,7 +109,7 @@ private fun WidgetContent(
         // ── 월 헤더 (고정) ────────────────────────────────────────────────────
         Row(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 4.dp)) {
             Text(
-                text = today.format(DateTimeFormatter.ofPattern("yyyy년 M월")) + "(결제일 : 10일)",
+                text = today.format(DateTimeFormatter.ofPattern("yyyy년 M월")) + "(결제일 : ${billingDay}일)",
                 modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(
                     color = ColorProvider(Color(0xFF111111)),
