@@ -19,9 +19,24 @@ abstract class ExpenseDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: ExpenseDatabase? = null
 
-        // Debug 빌드 → TEST DB / Release 빌드 → PRD DB
-        private val DB_NAME = if (BuildConfig.DEBUG) "expense_database_TEST.db"
-                              else                   "expense_database_PRD.db"
+        private const val PREFS_DB = "exptracker_db_prefs"
+        private const val KEY_USE_TEST = "use_test_db"
+
+        fun isTestDb(context: Context) =
+            context.getSharedPreferences(PREFS_DB, Context.MODE_PRIVATE)
+                .getBoolean(KEY_USE_TEST, false)
+
+        fun toggleTestDb(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_DB, Context.MODE_PRIVATE)
+            val next = !prefs.getBoolean(KEY_USE_TEST, false)
+            prefs.edit().putBoolean(KEY_USE_TEST, next).apply()
+            INSTANCE?.close()
+            INSTANCE = null
+            return next
+        }
+
+        private fun dbName(context: Context) =
+            if (isTestDb(context)) "expense_database_TEST.db" else "expense_database_PRD.db"
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -33,6 +48,12 @@ abstract class ExpenseDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // 기존 레코드 전부 롯데카드로 설정 (현재 지원 카드가 롯데카드 하나뿐)
                 db.execSQL("UPDATE expenses SET cardName = '롯데카드' WHERE cardName = ''")
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 스키마 변경 없음 — 버전 번호만 증가
             }
         }
 
@@ -49,16 +70,17 @@ abstract class ExpenseDatabase : RoomDatabase() {
                 context.applicationContext,
                 ExpenseDatabase::class.java,
                 dbFile.absolutePath
-            ).addMigrations(MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build()
+            ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
         }
 
         private fun resolveDbFile(context: Context): File {
+            val name = dbName(context)
             val externalDir = context.getExternalFilesDir("databases")
             if (externalDir != null) {
                 if (!externalDir.exists()) externalDir.mkdirs()
-                return File(externalDir, DB_NAME)
+                return File(externalDir, name)
             }
-            return context.getDatabasePath(DB_NAME)
+            return context.getDatabasePath(name)
         }
     }
 }

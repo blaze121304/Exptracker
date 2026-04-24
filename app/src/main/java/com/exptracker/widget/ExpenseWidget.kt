@@ -40,8 +40,8 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 // ── 색상 팔레트 (Figma: Clean Calendar) ────────────────────────────────────
-private val Purple       = Color(0xFF3F15EA)
-private val PurpleLight  = Color(0xFFEDE9FC)
+private val Purple       = Color(0xFF1A2E5E)
+private val PurpleLight  = Color(0xFFE8EDF7)
 private val BgCalendar   = Color(0xFFF4F4F4)
 private val TextPrimary  = Color(0xFF000000)
 private val TextDim      = Color(0xFF999999)   // 요일 헤더: rgba(0,0,0,0.4) ≈ #666
@@ -65,8 +65,7 @@ private data class GridMeta(
     val totalRows: Int,
     val ymFmtStr: String    // "yyyy-MM" formatted
 )
-private fun gridMeta(today: LocalDate): GridMeta {
-    val ym = YearMonth.of(today.year, today.month)
+private fun gridMeta(ym: YearMonth): GridMeta {
     val offset = ym.atDay(1).dayOfWeek.value % 7
     val days = ym.lengthOfMonth()
     val rows = (offset + days + 6) / 7
@@ -82,11 +81,12 @@ class ExpenseWidget : GlanceAppWidget() {
         val dao = ExpenseDatabase.getDatabase(context).expenseDao()
         val now = LocalDate.now()
         val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val ymFmt = DateTimeFormatter.ofPattern("yyyy-MM")
         val todayStr = now.format(fmt)
+        val nowYm = YearMonth.of(now.year, now.month)
 
         val prefsName = if (com.exptracker.BuildConfig.DEBUG) "exptracker_prefs_test" else "exptracker_prefs"
-        val billingDay = context
-            .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val billingDay = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
             .getInt("billing_day", 10)
         val cycleStart = if (now.dayOfMonth >= billingDay)
             now.withDayOfMonth(billingDay)
@@ -95,26 +95,38 @@ class ExpenseWidget : GlanceAppWidget() {
         val cycleEnd = cycleStart.plusMonths(1).minusDays(1)
         val cycleTotal = dao.getTotalInRange(cycleStart.format(fmt), cycleEnd.format(fmt))
 
-        val yearMonthStr = now.format(DateTimeFormatter.ofPattern("yyyy-MM"))
-        val monthExpenses = dao.getByMonth(yearMonthStr)
-        val dailyMap = monthExpenses.groupBy { it.date }
-        val dailyTotals = dailyMap.mapValues { e -> e.value.sumOf { it.amount } }
+        // 현재 월 포함 최근 3개월 데이터 미리 조회
+        val allData: Map<String, Map<String, List<SimpleExpense>>> = (0..2).associate { i ->
+            val ym = nowYm.minusMonths(i.toLong())
+            val ymStr = ym.format(ymFmt)
+            ymStr to dao.getByMonth(ymStr).groupBy { it.date }
+        }
 
         provideContent {
             val prefs = currentState<Preferences>()
-            val selectedDate = prefs[SelectDateCallback.SELECTED_DATE_KEY] ?: todayStr
+
+            // 표시 월 — Glance state에서 읽기 (currentState 안에서만 동작)
+            val displayedYmStr = prefs[ChangeMonthCallback.DISPLAYED_MONTH_KEY] ?: nowYm.format(ymFmt)
+            val displayedYm = YearMonth.parse(displayedYmStr)
+
+            val dailyMap    = allData[displayedYmStr] ?: emptyMap()
+            val dailyTotals = dailyMap.mapValues { e -> e.value.sumOf { it.amount } }
+
+            val selectedDate     = prefs[SelectDateCallback.SELECTED_DATE_KEY] ?: todayStr
             val selectedExpenses = dailyMap[selectedDate] ?: emptyList()
-            val selectedTotal = selectedExpenses.sumOf { it.amount }
+            val selectedTotal    = selectedExpenses.sumOf { it.amount }
 
             WidgetContent(
-                today          = now,
-                todayStr       = todayStr,
-                selectedDate   = selectedDate,
-                dailyTotals    = dailyTotals,
-                cycleTotal     = cycleTotal,
+                today            = now,
+                todayStr         = todayStr,
+                displayedYm      = displayedYm,
+                nowYm            = nowYm,
+                selectedDate     = selectedDate,
+                dailyTotals      = dailyTotals,
+                cycleTotal       = cycleTotal,
                 selectedExpenses = selectedExpenses,
-                selectedTotal  = selectedTotal,
-                billingDay     = billingDay
+                selectedTotal    = selectedTotal,
+                billingDay       = billingDay
             )
         }
     }
@@ -128,6 +140,8 @@ class ExpenseWidget : GlanceAppWidget() {
 private fun WidgetContent(
     today: LocalDate,
     todayStr: String,
+    displayedYm: YearMonth,
+    nowYm: YearMonth,
     selectedDate: String,
     dailyTotals: Map<String, Int>,
     cycleTotal: Int,
@@ -135,7 +149,7 @@ private fun WidgetContent(
     selectedTotal: Int,
     billingDay: Int
 ) {
-    val meta = gridMeta(today)
+    val meta = gridMeta(displayedYm)
 
     Column(
         modifier = GlanceModifier
@@ -149,39 +163,38 @@ private fun WidgetContent(
                 .fillMaxWidth()
                 .defaultWeight()
         ) {
-            // 1/3: 압축 헤더 — 단일 Row (빈 공간 최소화)
+            // 헤더 — 콘텐츠 높이만 사용 (defaultWeight 제거)
             Row(
                 modifier = GlanceModifier
                     .fillMaxWidth()
-                    .defaultWeight()
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = today.format(DateTimeFormatter.ofPattern("MMMM, yyyy", java.util.Locale.ENGLISH)),
+                    text = displayedYm.format(DateTimeFormatter.ofPattern("MMMM, yyyy", java.util.Locale.ENGLISH)),
                     modifier = GlanceModifier.defaultWeight(),
                     style = TextStyle(
                         color = ColorProvider(TextPrimary),
-                        fontSize = 20.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                 )
                 Text(
                     text = "결제일 ${billingDay}일",
-                    style = TextStyle(color = ColorProvider(Purple), fontSize = 11.sp)
+                    style = TextStyle(color = ColorProvider(Purple), fontSize = 10.sp)
                 )
                 Spacer(modifier = GlanceModifier.width(6.dp))
                 Text(
                     text = "%,d원".format(cycleTotal),
                     style = TextStyle(
                         color = ColorProvider(Purple),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 )
             }
 
-            // 2/3: 요일헤더 + 달력 행 0~2
+            // 요일헤더 + 달력 행 0~2
             Column(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -206,7 +219,7 @@ private fun WidgetContent(
                 CalendarRow(2, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
             }
 
-            // 3/3: 달력 행 3~5
+            // 달력 행 3~5
             Column(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -217,6 +230,42 @@ private fun WidgetContent(
                 CalendarRow(4, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
                 CalendarRow(5, meta, todayStr, selectedDate, dailyTotals, GlanceModifier.fillMaxWidth().defaultWeight())
             }
+
+            // 이전달/다음달 버튼
+            Row(
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "< 이전달",
+                    modifier = GlanceModifier
+                        .defaultWeight()
+                        .clickable(actionRunCallback<ChangeMonthCallback>(
+                            actionParametersOf(ChangeMonthCallback.DELTA_PARAM to "-1")
+                        )),
+                    style = TextStyle(
+                        color = ColorProvider(Purple),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Start
+                    )
+                )
+                Text(
+                    text = "다음달 >",
+                    modifier = GlanceModifier
+                        .defaultWeight()
+                        .clickable(actionRunCallback<ChangeMonthCallback>(
+                            actionParametersOf(ChangeMonthCallback.DELTA_PARAM to "1")
+                        )),
+                    style = TextStyle(
+                        color = ColorProvider(if (displayedYm < nowYm) Purple else TextDim),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.End
+                    )
+                )
+            }
         }
 
         // ── 하단 50% (4~6열): 날짜헤더 + 결제내역 LazyColumn ─────────────────
@@ -226,27 +275,40 @@ private fun WidgetContent(
                 .defaultWeight()
                 .background(ColorProvider(BgCalendar))
         ) {
+            val parts = selectedDate.split("-")
+            val dow = LocalDate.parse(selectedDate).dayOfWeek.value
+            val dowStr = listOf("월", "화", "수", "목", "금", "토", "일")[dow - 1]
             Row(
                 modifier = GlanceModifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .background(ColorProvider(Purple))
+                    .cornerRadius(16.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val parts = selectedDate.split("-")
                 Text(
                     text = "${parts[1].trimStart('0')}월 ${parts[2].trimStart('0')}일",
+                    style = TextStyle(
+                        color = ColorProvider(Color.White),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Spacer(modifier = GlanceModifier.width(6.dp))
+                Text(
+                    text = dowStr,
                     modifier = GlanceModifier.defaultWeight(),
                     style = TextStyle(
-                        color = ColorProvider(TextPrimary),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Normal
+                        color = ColorProvider(Color.White.copy(alpha = 0.65f)),
+                        fontSize = 11.sp
                     )
                 )
                 Text(
                     text = "%,d원".format(selectedTotal),
                     style = TextStyle(
-                        color = ColorProvider(Purple),
-                        fontSize = 13.sp,
+                        color = ColorProvider(Color.White),
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                 )
@@ -310,7 +372,7 @@ private fun CalendarRow(
                     .defaultWeight()
                     .background(ColorProvider(cellBg))
                     .cornerRadius(14.dp)
-                    .padding(vertical = 2.dp)
+                    .padding(vertical = 4.dp)
                     .clickable(
                         actionRunCallback<SelectDateCallback>(
                             actionParametersOf(SelectDateCallback.DATE_PARAM to dateStr)
@@ -371,7 +433,8 @@ private fun ExpenseRow(expense: SimpleExpense) {
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .padding(horizontal = 8.dp)
+            .padding(bottom = 4.dp)
             .background(ColorProvider(cardBg))
             .cornerRadius(20.dp),
         verticalAlignment = Alignment.CenterVertically
