@@ -3,7 +3,8 @@
     "allow": [
       "mcp__figam__whoami",
       "mcp__figam__get_design_context",
-      "Bash(adb shell *)"
+      "Bash(adb shell *)",
+      "Bash(dir \"D:\\\\project\\\\Exptracker\\\\.claude\")"
     ]
   }
 }

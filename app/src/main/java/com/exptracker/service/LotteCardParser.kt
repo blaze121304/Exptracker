@@ -20,7 +20,9 @@ class LotteCardParser : CardParser {
     private val dateTimeRegex = Regex("""(\d{2}/\d{2})\s+(\d{2}:\d{2})""")
 
     override fun canParse(title: String, packageName: String): Boolean =
-        packageName.contains("lotte", ignoreCase = true) || title.contains("롯데카드")
+        packageName == "com.lcacApp" ||
+        packageName.contains("lotte", ignoreCase = true) ||
+        title.contains("롯데카드")
 
     override fun parse(title: String, body: String): ParsedExpense? {
         val lines = body.lines().map { it.trim() }.filter { it.isNotBlank() }

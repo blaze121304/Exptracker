@@ -45,5 +45,8 @@ captures/
 *.env
 google-services.json
 
+# Claude Code — local-only settings
+.claude/settings.local.json
+
 # Generated files
 app/src/main/java/com/exptracker/BuildConfig.java
